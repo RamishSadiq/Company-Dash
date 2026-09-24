@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f5f6f8"><title>Nexora · Command Center</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/styles.css"><script src="/app.js" defer></script></head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#overview"><img src="/favicon.svg" alt=""><span>Nexora<span class="brand-sub">COMMAND CENTER</span></span></a>
+    <div class="workspace-switch"><span class="workspace-icon">N</span><span>Nexora workspace<small>Maintenance operations</small></span><span class="chevron">⌄</span></div>
+    <div class="nav-label">WORKSPACE</div>
+    <nav aria-label="Main navigation">
+      <a href="#overview" data-view="overview"><span class="nav-icon">◫</span>Overview</a>
+      <a href="#work" data-view="work"><span class="nav-icon">▤</span>Work board<span id="work-count" class="nav-count">0</span></a>
+      <a href="#agents" data-view="agents"><span class="nav-icon">♧</span>AI team<span class="nav-count">6</span></a>
+      <a href="#qa" data-view="qa"><span class="nav-icon">◎</span>QA & verification</a>
+      <a href="#knowledge" data-view="knowledge"><span class="nav-icon">▧</span>Repository & docs</a>
+      <a href="#activity" data-view="activity"><span class="nav-icon">↗</span>Activity log</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="local-card"><span class="status-dot"></span><span>Local workspace<small>Changes stay in review</small></span></div><a class="settings-link" href="#settings">⚙ <span>Workspace settings</span></a><div class="profile"><span class="avatar">RS</span><span>Workspace owner<small>Local administrator</small></span></div></div>
+  </aside>
+  <div class="shell">
+    <header class="topbar"><div class="breadcrumbs">Workspace <span>/</span> <strong id="breadcrumb">Overview</strong></div><div class="top-actions"><span class="environment">LOCAL</span><span class="connection" id="connection"><i></i>Connecting</span><button class="icon-button" id="refresh" aria-label="Refresh dashboard" title="Refresh dashboard">↻</button></div></header>
+    <main id="main" tabindex="-1"><div class="loading">Connecting to your workspace…</div></main>
+    <footer>NEXORA COMMAND CENTER <span>Source → request → handoff → evidence</span></footer>
+  </div>
+  <dialog id="request-dialog" class="request-dialog"><form id="request-form"><div class="modal-heading"><div><div class="eyebrow">WORK WITH YOUR AI TEAM</div><h2>New maintenance request</h2></div><button type="button" class="icon-button" data-close aria-label="Close">×</button></div><p class="muted">Describe the outcome. Your team will work from Nexora’s actual source.</p><label>Request title<input name="title" required maxlength="160" placeholder="e.g. Investigate company application permissions"></label><div class="form-row"><label>Assign to<select name="agent" id="agent-select" aria-label="Assign to"></select></label><label>Product area<select name="area" id="area-select" aria-label="Product area"></select></label></div><label>What needs to happen?<textarea name="description" required maxlength="12000" rows="6" placeholder="Explain the issue, expected behavior, and any acceptance criteria…"></textarea></label><div class="form-row"><label>Priority<select name="priority" aria-label="Priority"><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option><option value="low">Low</option></select></label><label class="checkbox-label"><input type="checkbox" name="workflow" checked><span>Create the maintenance workflow<small>PM / BA → developer → QA</small></span></label></div><div class="form-note">Creating a request saves it to the board. Start each agent when ready; every handoff remains reviewable.</div><div class="modal-actions"><button type="button" class="button secondary" data-close>Cancel</button><button class="button primary" type="submit">Create request <span>↗</span></button></div></form></dialog>
+  <dialog id="detail-dialog" class="detail-dialog"><div id="detail-content"></div></dialog>
+  <dialog id="reader-dialog" class="reader-dialog"><div class="modal-heading"><h2 id="reader-title">Document</h2><div class="reader-actions"><button class="button secondary small" id="download">Download</button><button class="icon-button" data-close aria-label="Close">×</button></div></div><pre id="reader-content"></pre></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+</body></html>

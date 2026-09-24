@@ -1,0 +1,8 @@
+{
+  "repoPath": "D:/Projects new/Nexora",
+  "port": 8000,
+  "codexPath": "codex",
+  "dotnetPath": "dotnet",
+  "sqlServer": ".\\SQLEXPRESS",
+  "agentTimeoutMinutes": 20
+}

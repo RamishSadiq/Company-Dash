@@ -1,0 +1,7 @@
+data/
+config.local.json
+node_modules/
+artifacts/
+*.log
+.env*
+!.env.example

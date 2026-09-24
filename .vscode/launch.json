@@ -1,0 +1,9 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "type": "node", "request": "launch", "name": "Nexora Command Center",
+    "program": "${workspaceFolder}/server/main.mjs",
+    "cwd": "${workspaceFolder}", "console": "integratedTerminal",
+    "serverReadyAction": { "pattern": "Command Center: (http://[^\\s]+)", "uriFormat": "%s", "action": "openExternally" }
+  }]
+}
