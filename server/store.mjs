@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { usageParser } from './usage.mjs';
 
 export const now = () => new Date().toISOString();
 export const id = prefix => `${prefix}_${randomUUID()}`;
@@ -17,6 +18,12 @@ export class Store {
       CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, type TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE UNIQUE INDEX IF NOT EXISTS one_active_task_run ON runs(task_id) WHERE status IN ('queued','running');`);
+    for (const [column, type] of [['target_task','TEXT'], ['source_hash','TEXT'], ['usage','TEXT']]) {
+      if (!this.all('PRAGMA table_info(runs)').some(c => c.name === column)) this.db.exec(`ALTER TABLE runs ADD COLUMN ${column} ${type}`);
+    }
+    for (const run of this.all("SELECT id,log FROM runs WHERE kind='agent' AND usage IS NULL AND log LIKE '%turn.completed%'")) {
+      usageParser(value => this.run('UPDATE runs SET usage=? WHERE id=?', JSON.stringify(value), run.id))(run.log + '\n');
+    }
     const interrupted = this.all("SELECT * FROM runs WHERE status IN ('queued','running')");
     for (const run of interrupted) {
       this.run("UPDATE runs SET status='interrupted',error=?,ended_at=? WHERE id=?", 'Server restarted; inspect logs before retrying. This run did not pass.', now(), run.id);

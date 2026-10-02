@@ -6,6 +6,9 @@ import { Store, now } from './store.mjs';
 import { agents, areas, suites } from './catalog.mjs';
 import { Runner, providerStatus } from './runner.mjs';
 import { readSource, scanRepository } from './repository.mjs';
+import { integrationPreview, integrate } from './proposals.mjs';
+import { backupData, cleanupData, retentionPlan } from './maintenance.mjs';
+import { budgetState } from './usage.mjs';
 
 function text(value, label, max = 12000) { if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`${label} is required (maximum ${max} characters).`); return value.trim(); }
 function choice(value, list, label) { if (!list.includes(value)) throw new Error(`Invalid ${label}.`); return value; }
@@ -22,6 +25,14 @@ export function createApp(config) {
   const token = randomBytes(32).toString('hex');
   let scan = null, scanError = null, scanning = null;
   let provider = { available: false, detail: 'Checking Codex CLI…' };
+  let maintenance = false;
+  async function exclusive(work) {
+    if (maintenance || runner.active || store.get("SELECT id FROM runs WHERE status IN ('queued','running')")) throw new Error('Wait for active/queued runs before maintenance or integration.');
+    maintenance = true;
+    try { return await work(); } finally { maintenance = false; }
+  }
+  const retentionTimer = config.retentionDays ? setInterval(() => exclusive(() => cleanupData(store, config)).catch(error => store.event(null,'maintenance.deferred',error.message)), 86400000) : null;
+  retentionTimer?.unref();
   const refresh = async () => {
     if (scanning) return scanning;
     scanning = scanRepository(config.repoPath).then(result => { scan = result; scanError = null; return result; }).catch(error => { scanError = error.message; throw error; }).finally(() => { scanning = null; });
@@ -46,14 +57,16 @@ export function createApp(config) {
       if (route.startsWith('/api/')) {
         const supplied = Buffer.from(req.headers['x-command-token'] || '');
         if (supplied.length !== token.length || !timingSafeEqual(supplied, Buffer.from(token))) return respond(401, { error: 'Refresh the page to reconnect your local session.' });
+        if (maintenance && req.method !== 'GET') throw new Error('Maintenance is in progress. Retry shortly.');
         if (req.method === 'GET' && route === '/api/state') return respond(200, {
           agents, areas, suites: suites.map(({ args, kind, timeout, ...suite }) => suite),
           repository: scan ? { ...scan, files: undefined } : null, repositoryError: scanError, provider,
           tasks: store.all('SELECT * FROM tasks ORDER BY created_at DESC'),
-          runs: store.all('SELECT id,task_id,kind,label,status,command,baseline,exit_code,error,created_at,started_at,ended_at FROM runs ORDER BY created_at DESC LIMIT 200'),
+          runs: store.all('SELECT id,task_id,target_task,source_hash,usage,kind,label,status,command,baseline,exit_code,error,created_at,started_at,ended_at FROM runs ORDER BY created_at DESC LIMIT 200'),
           events: store.all('SELECT * FROM events ORDER BY id DESC LIMIT 60'),
           artifacts: store.all('SELECT id,task_id,run_id,name,kind,created_at FROM artifacts ORDER BY created_at DESC LIMIT 200'),
-          config: { repoPath: config.repoPath, mode: 'Local single-user', agentTimeoutMinutes: config.agentTimeoutMinutes, sqlServer: config.sqlServer },
+          config: { repoPath: config.repoPath, mode: 'Local single-user', agentTimeoutMinutes: config.agentTimeoutMinutes, sqlServer: config.sqlServer, retentionDays: config.retentionDays || 0 },
+          usage: budgetState(store, config),
         });
         if (req.method === 'POST' && route === '/api/repository/scan') { const result = await refresh(); store.event(null, 'repository.scanned', `${result.fileCount} source files indexed at ${result.commit.slice(0,7)}.`); return respond(200, result); }
         if (req.method === 'GET' && route === '/api/repository/files') return respond(200, { files: (scan?.files || []).filter(f => f.toLowerCase().includes((url.searchParams.get('q') || '').toLowerCase())).slice(0, 300) });
@@ -64,9 +77,9 @@ export function createApp(config) {
           const input = { title: text(data.title, 'Title', 160), description: text(data.description, 'Request'), agent: choice(data.agent, agents.map(a => a.id), 'agent'), area: choice(data.area, areas, 'area'), priority: choice(data.priority || 'normal', ['low','normal','high','urgent'], 'priority') };
           const result = store.transaction(() => {
             const root = store.task(input);
-            if (data.workflow === true && ['pm', 'ba'].includes(input.agent)) {
+            if (data.workflow === true && ['pm', 'ba', 'support'].includes(input.agent)) {
               let previous = root;
-              const order = input.agent === 'pm' ? ['ba', data.area === 'Portal' || data.area === 'Website / CMS' ? 'portal_dev' : 'crm_dev', 'qa'] : [data.area === 'Portal' || data.area === 'Website / CMS' ? 'portal_dev' : 'crm_dev', 'qa'];
+              const order = ['pm', 'support'].includes(input.agent) ? ['ba', data.area === 'Portal' || data.area === 'Website / CMS' ? 'portal_dev' : 'crm_dev', 'qa'] : [data.area === 'Portal' || data.area === 'Website / CMS' ? 'portal_dev' : 'crm_dev', 'qa'];
               for (const agent of order) previous = store.task({ ...input, title: `${agent === 'ba' ? 'Specify' : agent === 'qa' ? 'Verify' : 'Implement'}: ${input.title}`, agent, parent_id: root.id, depends_on: previous.id, status: 'blocked' });
               store.event(root.id, 'workflow.created', 'A standard maintenance workflow was created. Each accepted handoff unlocks the next role; execution is started explicitly.');
             }
@@ -77,7 +90,7 @@ export function createApp(config) {
         const match = route.match(/^\/api\/tasks\/([^/]+)(?:\/(messages|run|accept|cancel))?$/);
         if (match) {
           const current = task(match[1]), action = match[2];
-          if (req.method === 'GET' && !action) return respond(200, { ...current, messages: store.all('SELECT * FROM messages WHERE task_id=? ORDER BY created_at', current.id), artifacts: store.all('SELECT * FROM artifacts WHERE task_id=? ORDER BY created_at DESC', current.id), runs: store.all('SELECT * FROM runs WHERE task_id=? ORDER BY created_at DESC', current.id) });
+          if (req.method === 'GET' && !action) return respond(200, { ...current, messages: store.all('SELECT * FROM messages WHERE task_id=? ORDER BY created_at', current.id), artifacts: store.all('SELECT * FROM artifacts WHERE task_id=? ORDER BY created_at DESC', current.id), runs: store.all('SELECT * FROM runs WHERE task_id=? OR target_task=? ORDER BY created_at DESC', current.id, current.id) });
           if (req.method === 'POST' && action === 'messages') {
             if (['running','queued','completed','cancelled'].includes(current.status)) throw new Error('Add a follow-up when this task is ready, blocked, or awaiting review.');
             const data = await body(req); store.message(current.id, 'user', text(data.content, 'Message'));
@@ -107,8 +120,15 @@ export function createApp(config) {
           const data = await body(req), suite = suites.find(s => s.id === data.suite);
           if (!suite) throw new Error('Unknown QA suite.');
           if (store.get("SELECT id FROM runs WHERE kind='qa' AND label=? AND status IN ('queued','running')", suite.id)) throw new Error('This suite is already queued or running.');
-          return respond(202, runner.enqueue({ suite }));
+          const targetTask = data.taskId ? task(data.taskId) : null;
+          if (targetTask && !['review','completed'].includes(targetTask.status)) throw new Error('Complete the agent proposal before running its QA.');
+          return respond(202, runner.enqueue({ suite, targetTask }));
         }
+        if (req.method === 'POST' && route === '/api/integration/preview') { const data = await body(req); return respond(200, await exclusive(() => integrationPreview(store, config, text(data.taskId,'Task',100)))); }
+        if (req.method === 'POST' && route === '/api/integration/apply') { const data = await body(req); return respond(200, await exclusive(() => integrate(store, config, data.key))); }
+        if (req.method === 'POST' && route === '/api/maintenance/backup') return respond(200, await exclusive(() => backupData(store, config)));
+        if (req.method === 'GET' && route === '/api/maintenance/preview') return respond(200, { entries: await retentionPlan(store, config) });
+        if (req.method === 'POST' && route === '/api/maintenance/cleanup') return respond(200, await exclusive(() => cleanupData(store, config)));
         const runMatch = route.match(/^\/api\/runs\/([^/]+)(\/cancel)?$/);
         if (runMatch) {
           if (req.method === 'POST' && runMatch[2]) return respond(200, runner.cancel(runMatch[1]));
@@ -127,5 +147,5 @@ export function createApp(config) {
       const [filename, mime] = assets[route]; respond(200, await fs.readFile(path.join(config.root, 'public', filename)), mime);
     } catch (error) { respond(400, { error: error.message }); }
   });
-  return { server, store, runner, ready, close: async () => { await runner.shutdown(); await new Promise(resolve => server.close(resolve)); store.close(); } };
+  return { server, store, runner, ready, close: async () => { if (retentionTimer) clearInterval(retentionTimer); await runner.shutdown(); while (maintenance) await new Promise(r => setTimeout(r,50)); await new Promise(resolve => server.close(resolve)); store.close(); } };
 }

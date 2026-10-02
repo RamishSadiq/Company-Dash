@@ -47,13 +47,50 @@ export async function scanRepository(root) {
   const docs = files.filter(f => f.endsWith('.md') && (f.startsWith('docs/') || f === 'README.md' || f === 'AGENTS.md'));
   return { ...base, path: root, scannedAt: new Date().toISOString(), fileCount: files.length, groups, docs, files };
 }
-export async function createSnapshot(source, destination) {
+export async function sourceFingerprint(root) {
+  const hash = createHash('sha256');
+  for (const file of await inventory(root)) hash.update(file).update('\0').update(await readSource(root, file)).update('\0');
+  return hash.digest('hex');
+}
+
+// Operator-owned preparation: Next's required local guidance travels with an
+// agent copy, without granting the agent access to live dependencies.
+export async function prepareAgentGuides(source, destination) {
+  const web = root => path.join(root, 'apps', 'web');
+  const docs = path.join(web(source), 'node_modules', 'next', 'dist', 'docs');
+  if (!await fs.stat(docs).catch(() => null)) return false;
+  for (const name of ['package.json', 'package-lock.json']) {
+    const original = await fs.readFile(path.join(web(source), name), 'utf8').catch(() => null);
+    const proposed = await fs.readFile(path.join(web(destination), name), 'utf8').catch(() => null);
+    if (original === null || original !== proposed) return false;
+  }
+  const base = await fs.realpath(docs);
+  await fs.cp(base, path.join(web(destination), 'node_modules', 'next', 'dist', 'docs'), {
+    recursive: true, dereference: true,
+    filter: async item => {
+      const actual = await fs.realpath(item);
+      if (actual !== base && !actual.startsWith(base + path.sep)) throw new Error('Next guidance link escapes its directory.');
+      return true;
+    },
+  });
+  return true;
+}
+export async function createSnapshot(source, destination, inherit = false) {
   const initial = await baseline(source);
   const files = await inventory(source);
   await fs.mkdir(destination, { recursive: true });
   const hash = createHash('sha256');
   let count = 0, total = 0;
   const omitted = [];
+  if (inherit) {
+    // Preserve the first snapshot's HEAD across handoffs so each patch remains cumulative.
+    await git(source, ['clone', '--no-hardlinks', '--no-local', source, destination]);
+    const retained = new Set(files);
+    for (const file of (await git(destination, ['ls-files', '-z'])).split('\0').filter(Boolean)) {
+      if (!allowed(file)) throw new Error('Snapshot baseline contains an excluded path.');
+      if (!retained.has(file)) await fs.unlink(path.join(destination, file));
+    }
+  }
   for (const file of files) {
     let content;
     try { content = await readSource(source, file); } catch (error) { omitted.push(`${file}: ${error.message}`); continue; }
@@ -66,6 +103,6 @@ export async function createSnapshot(source, destination) {
   }
   await git(destination, ['init', '-q']);
   await git(destination, ['add', '-A']);
-  await git(destination, ['-c', 'user.name=Command Center', '-c', 'user.email=local@command-center.invalid', '-c', 'core.hooksPath=', 'commit', '-qm', 'Isolated source baseline', '--no-verify']);
+  if (!inherit) await git(destination, ['-c', 'user.name=Command Center', '-c', 'user.email=local@command-center.invalid', '-c', 'core.hooksPath=', 'commit', '-qm', 'Isolated source baseline', '--no-verify']);
   return { ...initial, snapshotHash: hash.digest('hex'), capturedFiles: count, omitted, capturedAt: new Date().toISOString(), note: 'Filtered source copy, including current uncommitted source. Secrets, runtime configuration, dependencies and build outputs excluded. Copy is not an atomic filesystem snapshot.' };
 }

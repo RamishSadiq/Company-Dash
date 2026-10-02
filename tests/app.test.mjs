@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../server/app.mjs';
-import { git, readSource, createSnapshot } from '../server/repository.mjs';
+import { git, readSource, createSnapshot, prepareAgentGuides } from '../server/repository.mjs';
 import { Store } from '../server/store.mjs';
 import { execute, Runner } from '../server/runner.mjs';
 import { root } from '../server/config.mjs';
@@ -56,6 +56,27 @@ test('source snapshot includes current dirty source and excludes secrets and lin
   assert.equal(await fs.readFile(path.join(repo,'README.md'),'utf8'),'Changed and uncommitted');
 });
 
+test('agent guidance is independently copied only for matching packages and confined links',async t=>{
+  const {base,repo}=await fixture(t),draft=path.join(base,'draft');
+  const web=directory=>path.join(directory,'apps','web');
+  const guides=path.join(web(repo),'node_modules','next','dist','docs');
+  await fs.mkdir(guides,{recursive:true});await fs.mkdir(web(draft),{recursive:true});
+  for(const name of ['package.json','package-lock.json']) {
+    await fs.writeFile(path.join(web(repo),name),'{}');await fs.writeFile(path.join(web(draft),name),'{}');
+  }
+  await fs.writeFile(path.join(guides,'guide.md'),'Required Next guidance');
+  await fs.writeFile(path.join(web(repo),'node_modules','next','runtime.js'),'Runtime must not be copied');
+  assert.equal(await prepareAgentGuides(repo,draft),true);
+  assert.equal(await fs.readFile(path.join(web(draft),'node_modules','next','dist','docs','guide.md'),'utf8'),'Required Next guidance');
+  assert.equal(await fs.stat(path.join(web(draft),'node_modules','next','runtime.js')).catch(()=>null),null);
+  await fs.writeFile(path.join(web(draft),'package-lock.json'),'changed');
+  assert.equal(await prepareAgentGuides(repo,draft),false);
+  await fs.writeFile(path.join(web(draft),'package-lock.json'),'{}');
+  const outside=path.join(base,'external-guidance');await fs.mkdir(outside);
+  await fs.symlink(outside,path.join(guides,'linked'),process.platform==='win32'?'junction':'dir');
+  await assert.rejects(prepareAgentGuides(repo,draft),/escapes/);
+});
+
 test('API rejects cross-origin, missing token and invalid payloads',async t=>{
   const {request,url}=await application(t);
   assert.equal((await fetch(`${url}/api/state`)).status,401);
@@ -83,6 +104,28 @@ test('maintenance workflow persists, gates execution and advances only on review
   state=(await request('/api/state')).body;assert.equal(state.tasks.find(task=>task.id===ba.id).status,'ready');
   assert.equal(state.tasks.find(task=>task.id===dev.id).status,'blocked');
   assert.equal((await request(`/api/tasks/${root.id}/messages`,{content:'Change accepted work'})).status,400);
+});
+
+test('support can triage alone or hand off through BA and the product developer',async t=>{
+  const {app,request}=await application(t);
+  const standalone=await request('/api/tasks',{...requestData,agent:'support',workflow:false});
+  assert.equal(standalone.status,201);
+  assert.equal((await request('/api/state')).body.tasks.length,1);
+  for (const [area,developer] of [['CRM','crm_dev'],['Portal','portal_dev'],['Website / CMS','portal_dev']]) {
+    const created=await request('/api/tasks',{...requestData,agent:'support',area});
+    assert.equal(created.status,201);
+    const state=(await request('/api/state')).body;
+    const children=state.tasks.filter(task=>task.parent_id===created.body.id);
+    assert.equal(children.length,3);
+    const ba=children.find(task=>task.agent==='ba'),dev=children.find(task=>task.agent===developer),qa=children.find(task=>task.agent==='qa');
+    assert.equal(ba.depends_on,created.body.id);
+    assert.equal(dev.depends_on,ba.id);assert.equal(qa.depends_on,dev.id);
+    assert.throws(()=>app.runner.enqueue({task:ba}),/preceding handoff/);
+    app.store.run("UPDATE tasks SET status='review' WHERE id=?",created.body.id);
+    assert.equal((await request(`/api/tasks/${created.body.id}/accept`,{})).status,200);
+    assert.equal((await request(`/api/tasks/${ba.id}`)).body.status,'ready');
+    assert.equal((await request(`/api/tasks/${dev.id}`)).body.status,'blocked');
+  }
 });
 
 test('restart preserves records and marks unfinished runs interrupted',async t=>{
@@ -119,6 +162,7 @@ test('agent report contract distinguishes blocked output and preserves cumulativ
   const fakeExecutor=(command,args,options)=>({stop(){},done:(async()=>{
     assert.equal(args[args.indexOf('--sandbox')+1],'workspace-write');
     assert.ok(args.includes('--ignore-user-config'));assert.ok(!args.includes('--dangerously-bypass-approvals-and-sandbox'));
+    assert.match(options.input,/Accepted BA inventory/);assert.match(options.input,/Accepted developer report/);
     attempt++;
     await fs.writeFile(path.join(options.cwd,'new.ts'),`export const revision = ${attempt};`);
     await fs.writeFile(args[args.indexOf('-o')+1],JSON.stringify({status:attempt===3?'blocked':'complete',report:attempt===3?'Blocked by missing test dependency.':'Draft prepared; not deployed.'}));
@@ -127,7 +171,11 @@ test('agent report contract distinguishes blocked output and preserves cumulativ
   })()});
   const runner=new Runner(store,{root,repoPath:repo,dataDir,codexPath:'fixture-only',agentTimeoutMinutes:1},fakeExecutor);
   cleanup.push(async()=>{await runner.shutdown();store.close();});
-  const task=store.task({...requestData,agent:'crm_dev'});
+  const analyst=store.task({...requestData,agent:'ba',status:'completed'});
+  store.artifact(analyst.id,null,'BA report','report','Accepted BA inventory');
+  const developer=store.task({...requestData,agent:'crm_dev',status:'completed',depends_on:analyst.id});
+  store.artifact(developer.id,null,'Developer report','report','Accepted developer report');
+  const task=store.task({...requestData,agent:'crm_dev',depends_on:developer.id});
   async function runAndWait(){const run=runner.enqueue({task:store.get('SELECT * FROM tasks WHERE id=?',task.id)});const deadline=Date.now()+15000;while(['queued','running'].includes(store.get('SELECT status FROM runs WHERE id=?',run.id).status)){assert.ok(Date.now()<deadline,'Run should settle');await new Promise(r=>setTimeout(r,25));}while(runner.active)await new Promise(r=>setTimeout(r,10));return store.get('SELECT * FROM runs WHERE id=?',run.id);}
   const first=await runAndWait();assert.equal(first.status,'succeeded');
   assert.equal(store.get('SELECT status FROM tasks WHERE id=?',task.id).status,'review');

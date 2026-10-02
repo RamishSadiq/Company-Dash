@@ -4,5 +4,10 @@
   "codexPath": "codex",
   "dotnetPath": "dotnet",
   "sqlServer": ".\\SQLEXPRESS",
-  "agentTimeoutMinutes": 20
+  "agentTimeoutMinutes": 20,
+  "maxRunTokens": 0,
+  "dailyTokenLimit": 0,
+  "dailyUsdLimit": 0,
+  "tokenRates": null,
+  "retentionDays": 0
 }
