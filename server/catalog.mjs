@@ -9,7 +9,7 @@ export const agents = [
 ];
 export const suites = [
   { id: 'architecture', name: 'Architecture checks', area: 'Platform', detail: 'xUnit module and assembly conventions. No application database required.', timeout: 300000, kind: 'dotnet', args: ['test', 'backend/tests/Nexora.Architecture.Tests/Nexora.Architecture.Tests.csproj', '--nologo', '--verbosity', 'minimal'] },
-  { id: 'api', name: 'API regression', area: 'Platform', detail: 'Full Nexora API test project. Requires its configured test dependencies.', timeout: 900000, kind: 'dotnet', args: ['test', 'backend/tests/Nexora.Api.Tests/Nexora.Api.Tests.csproj', '--nologo', '--verbosity', 'minimal'] },
+  { id: 'api', name: 'API regression', area: 'Platform', detail: 'Full Nexora API test project. Requires its configured test dependencies; allows up to 60 minutes for current SQL and audit coverage.', timeout: 3600000, kind: 'dotnet', args: ['test', 'backend/tests/Nexora.Api.Tests/Nexora.Api.Tests.csproj', '--nologo', '--verbosity', 'minimal'] },
   { id: 'crm', name: 'CRM browser journey', area: 'CRM', detail: 'Production frontend, isolated SQL test database, ports 5095 / 3015.', timeout: 1800000, kind: 'node', args: ['scripts/Test-Website.mjs', '--crm', '--production'] },
   { id: 'portal', name: 'Portal browser journeys', area: 'Portal', detail: 'Personal and company portal flows in an isolated SQL test database.', timeout: 1800000, kind: 'node', args: ['scripts/Test-Website.mjs', '--portal', '--production'] },
   { id: 'website', name: 'Website / CMS journey', area: 'Website / CMS', detail: 'Publishing and website behavior against the production frontend.', timeout: 1800000, kind: 'node', args: ['scripts/Test-Website.mjs', '--production'] },

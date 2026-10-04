@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveCodexPath } from './codex-path.mjs';
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const local = path.join(root, 'config.local.json');
@@ -9,7 +10,7 @@ export const config = {
   root, repoPath: path.resolve(process.env.NEXORA_REPO_PATH || settings.repoPath || 'D:/Projects new/Nexora'),
   dataDir: path.resolve(process.env.COMMAND_CENTER_DATA || path.join(root, 'data')),
   port: Number(process.env.PORT || settings.port || 8000),
-  codexPath: process.env.CODEX_EXECUTABLE || settings.codexPath || 'codex',
+  codexPath: process.env.CODEX_EXECUTABLE || resolveCodexPath(settings.codexPath || 'codex'),
   dotnetPath: settings.dotnetPath || 'dotnet',
   sqlServer: settings.sqlServer || '.\\SQLEXPRESS',
   agentTimeoutMinutes: settings.agentTimeoutMinutes || 20,

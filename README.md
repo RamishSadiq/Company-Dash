@@ -16,6 +16,11 @@ Copy `config.example.json` to `config.local.json` if paths differ. The default c
 
 For agent execution, install/sign into the Codex CLI (`codex login`). A `codexPath` pointing to an absolute executable can be configured. Agent execution uses the signed-in account and sends source context through that provider; this is not an offline/local-model implementation. It does not read or expose your authentication files. See the [official non-interactive execution documentation](https://learn.chatgpt.com/docs/non-interactive-mode).
 
+If a desktop update removes a configured executable inside the managed
+`OpenAI/Codex/bin/<version>` directory, the dashboard selects the newest available
+Codex executable in that same directory. Working configured paths and an explicit
+`CODEX_EXECUTABLE` override are preserved.
+
 ## Daily workflow
 
 1. Refresh the source index when Nexora changes.

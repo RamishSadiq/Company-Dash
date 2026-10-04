@@ -92,3 +92,24 @@ Concurrent source changes require a further refreshed proposal. Full execution
 evidence and remaining integration work are recorded in
 [the completion record](COMPLETION-2026-10-01.md). This follow-up does not certify
 the earlier failed proposal as integrated or production ready.
+
+## Follow-up — current-source completion, 4 October 2026
+
+The outstanding Nexora work was refreshed against the current dirty checkout,
+implemented in an independent proposal and applied locally after exact-source
+review. The final patch includes CRM association presentation, demo output-directory
+creation, restricted CRM/Portal dual-access coverage and a local access runbook.
+Existing Nexora work is preserved. Historical failed agent runs remain failed.
+
+The dashboard now recovers a removed managed Codex executable after desktop
+updates and allows the full API suite up to 60 minutes. All 16 dashboard regression
+tests pass, desktop/mobile smoke passes, and the completed 10,665-file backup has
+independently verified checksums and SQLite integrity. Proposal checks passed all
+256 API tests, 2 architecture tests and 7 production CRM browser journeys.
+
+Exact fingerprints, checkout verification and integration boundaries are recorded
+in [the current completion record](COMPLETION-2026-10-04.md). Independent checkout
+QA through the live dashboard also passed all 256 API tests, 2 architecture tests
+and 7 production CRM journeys, with the same integrated source fingerprint.
+The superseded blocked stages are closed with completion evidence. Nexora remains
+locally modified; no Nexora commit, push or deployment is implied.
